@@ -19,3 +19,14 @@ class KeitaroClient:
             response.raise_for_status()
 
             return response.json()
+
+    async def post(self, endpoint: str, data: dict):
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=30.0,
+        ) as client:
+            response = await client.post(endpoint, json=data)
+            response.raise_for_status()
+
+            return response.json()

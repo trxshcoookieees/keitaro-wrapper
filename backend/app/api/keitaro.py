@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 import httpx
 
 from app.database import get_db
+from app.schemas.campaign import CampaignCreate
+from app.models import Campaign
 from app.services.keitaro_sync import sync_campaigns
 from app.services.keitaro import KeitaroClient
 
@@ -102,3 +104,40 @@ async def sync_keitaro_data(db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         raise
+
+@router.post("/campaigns")
+async def create_campaign(
+        data: CampaignCreate,
+        db: Session = Depends(get_db)
+):
+    client = KeitaroClient()
+
+    try:
+        keitaro_campaign = await client.post(
+            "/campaigns",
+            data={"name": data.name},
+        )
+
+        campaign = Campaign(
+            keitaro_id=keitaro_campaign["id"],
+            name=keitaro_campaign["name"],
+        )
+
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+
+        return campaign
+
+    except httpx.HTTPStatusError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API"
+        )
