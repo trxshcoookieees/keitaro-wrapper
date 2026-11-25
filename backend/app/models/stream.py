@@ -29,14 +29,17 @@ class Stream(Base):
     )
 
     name: Mapped[str] = mapped_column(String(255))
+    type: Mapped[str] = mapped_column(String(50), default="regular")
+    schema: Mapped[str] = mapped_column(String(50), default="landings")
+    action_type: Mapped[str] = mapped_column(String(50), default="http")
+    action_payload: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    filter_or: Mapped[bool] = mapped_column(Boolean, default=False)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_dirty: Mapped[bool] = mapped_column(Boolean, default=False)
 
     filters: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    action_payload: Mapped[str | None] = mapped_column(
-        String,
-        nullable=True,
-    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
