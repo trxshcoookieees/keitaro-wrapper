@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 import httpx
 
 from app.database import get_db
-from app.schemas.campaign import CampaignCreate
-from app.models import Campaign
+from app.schemas.campaign import CampaignCreate, CampaignCreateResponse
+from app.models import Campaign, Stream, StreamOffer
 from app.services.keitaro_sync import sync_campaigns
 from app.services.keitaro import KeitaroClient
 
@@ -105,7 +105,7 @@ async def sync_keitaro_data(db: Session = Depends(get_db)):
         db.rollback()
         raise
 
-@router.post("/campaigns")
+@router.post("/campaigns", response_model=CampaignCreateResponse)
 async def create_campaign(
         data: CampaignCreate,
         db: Session = Depends(get_db)
@@ -127,7 +127,93 @@ async def create_campaign(
         db.commit()
         db.refresh(campaign)
 
-        return campaign
+        geo_stream = await client.post(
+            "/streams",
+            data={
+                "campaign_id": campaign.keitaro_id,
+                "name": "GEO",
+                "type": "regular",
+                "schema": "redirect",
+                "action_type": "http",
+                "action_payload": "https://google.com",
+                "filters": [
+                    {
+                        "name": "country",
+                        "mode": "accept",
+                        "payload": data.geo_codes,
+                    }
+                ],
+            },
+        )
+
+        geo_stream_record = Stream(
+            keitaro_id=geo_stream["id"],
+            campaign_id=campaign.id,
+            name=geo_stream["name"],
+            type=geo_stream["type"],
+            schema=geo_stream["schema"],
+            action_type=geo_stream["action_type"],
+            action_payload=geo_stream.get("action_payload"),
+            filters=geo_stream.get("filters", []),
+            is_active=True,
+        )
+
+        db.add(geo_stream_record)
+        db.commit()
+
+        offer_count = len(data.offer_ids)
+        base_share, remainder = divmod(100, offer_count)
+
+        offers = [
+            {
+                "offer_id": offer_id,
+                "share": base_share + (1 if index < remainder else 0),
+                "state": "active",
+            }
+            for index, offer_id in enumerate(data.offer_ids)
+        ]
+
+        offers_stream = await client.post(
+            "/streams",
+            data={
+                "campaign_id": campaign.keitaro_id,
+                "name": "Offers",
+                "type": "default",
+                "schema": "landings",
+                "action_type": "http",
+                "offers": offers,
+            },
+        )
+
+        offers_stream_record = Stream(
+            keitaro_id=offers_stream["id"],
+            campaign_id=campaign.id,
+            name=offers_stream["name"],
+            type=offers_stream["type"],
+            schema=offers_stream["schema"],
+            action_type=offers_stream["action_type"],
+            action_payload=offers_stream.get("action_payload"),
+            is_active=True,
+        )
+
+        db.add(offers_stream_record)
+        db.flush()
+
+        for offer_data in offers:
+            db.add(
+                StreamOffer(
+                    stream_id=offers_stream_record.id,
+                    offer_id=offer_data["offer_id"],
+                    offer_name=f"Offer {offer_data['offer_id']}",
+                    share=offer_data["share"],
+                    is_active=True,
+                )
+            )
+
+        db.commit()
+        db.refresh(campaign)
+
+        return {"campaign": campaign}
 
     except httpx.HTTPStatusError as error:
         db.rollback()
