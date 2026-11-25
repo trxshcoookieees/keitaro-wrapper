@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Query, HTTPException
 
 import httpx
 
@@ -10,11 +10,24 @@ router = APIRouter(
 )
 
 @router.get("/offers")
-async def get_offers():
+async def get_offers(search: str | None = Query(default=None)):
     client = KeitaroClient()
 
     try:
-        return await client.get("/offers")
+        offers = await client.get("/offers")
+
+        if search:
+            search_lower = search.lower()
+
+            offers = [
+                offer
+                for offer in offers
+                    if search_lower in offer["name"].lower()
+                    or search_lower in str(offer["id"])
+            ]
+
+        return offers
+
     except httpx.HTTPStatusError as error:
         raise HTTPException(
             status_code=502,
