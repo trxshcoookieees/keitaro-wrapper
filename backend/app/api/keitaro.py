@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Query, HTTPException, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 import httpx
 
 from app.database import get_db
-from app.schemas.campaign import CampaignCreate, CampaignCreateResponse
+from app.schemas.campaign import CampaignCreate, CampaignCreateResponse, CampaignResponse
 from app.models import Campaign, Stream, StreamOffer
 from app.services.keitaro_sync import sync_campaigns
 from app.services.keitaro import KeitaroClient
@@ -199,12 +200,21 @@ async def create_campaign(
         db.add(offers_stream_record)
         db.flush()
 
+        keitaro_offers = await client.get("/offers")
+        offer_names = {
+            offer["id"]: offer["name"]
+            for offer in keitaro_offers
+        }
+
         for offer_data in offers:
             db.add(
                 StreamOffer(
                     stream_id=offers_stream_record.id,
                     offer_id=offer_data["offer_id"],
-                    offer_name=f"Offer {offer_data['offer_id']}",
+                    offer_name=offer_names.get(
+                        offer_data["offer_id"],
+                        f"Offer {offer_data['offer_id']}",
+                    ),
                     share=offer_data["share"],
                     is_active=True,
                 )
@@ -227,3 +237,14 @@ async def create_campaign(
             status_code=502,
             detail="Unable to connect to Keitaro API"
         )
+
+
+@router.get("/local/campaigns", response_model=list[CampaignResponse])
+def get_local_campaigns(db: Session = Depends(get_db)):
+    campaigns = db.scalars(
+        select(Campaign).options(
+            selectinload(Campaign.streams).selectinload(Stream.offers)
+        )
+    ).all()
+
+    return campaigns

@@ -1,6 +1,17 @@
 from pydantic import BaseModel, ConfigDict
 
 
+class StreamOfferResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    offer_id: int
+    offer_name: str
+    share: int
+    is_active: bool
+    is_pinned: bool
+
+
 class StreamResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -14,3 +25,4 @@ class StreamResponse(BaseModel):
     action_payload: str | None
     is_active: bool
     is_dirty: bool
+    offers: list[StreamOfferResponse]
