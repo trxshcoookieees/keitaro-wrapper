@@ -5,6 +5,42 @@ export async function getCampaigns(): Promise<Campaign[]> {
   return apiFetch<Campaign[]>("/local/campaigns");
 }
 
+export async function syncCampaigns(): Promise<void> {
+  await apiFetch("/sync", {
+    method: "POST",
+  });
+}
+
+export async function syncCampaign(campaignId: number): Promise<Campaign> {
+  return apiFetch<Campaign>(`/local/campaigns/${campaignId}/sync`, {
+    method: "POST",
+  });
+}
+
+export async function restoreStreamOffer(
+  streamId: number,
+  offerId: number,
+): Promise<Campaign> {
+  return apiFetch<Campaign>(
+    `/local/streams/${streamId}/offers/${offerId}/restore`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function deleteStreamOffer(
+  streamId: number,
+  offerId: number,
+): Promise<Campaign> {
+  return apiFetch<Campaign>(
+    `/local/streams/${streamId}/offers/${offerId}/delete`,
+    {
+      method: "POST",
+    },
+  );
+}
+
 export async function createCampaign(
   data: CampaignCreate,
 ): Promise<{ campaign: Campaign }> {

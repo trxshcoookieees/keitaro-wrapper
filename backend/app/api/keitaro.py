@@ -7,13 +7,28 @@ import httpx
 from app.database import get_db
 from app.schemas.campaign import CampaignCreate, CampaignCreateResponse, CampaignResponse
 from app.models import Campaign, Stream, StreamOffer
-from app.services.keitaro_sync import sync_campaigns
+from app.services.keitaro_sync import sync_campaign, sync_campaigns
 from app.services.keitaro import KeitaroClient
+from app.services.stream_offers import rebalance_offers
 
 router = APIRouter(
     prefix="/keitaro",
     tags=["Keitaro"],
 )
+
+
+def _get_campaign_with_streams(
+        db: Session,
+        campaign_id: int,
+) -> Campaign | None:
+    return db.scalar(
+        select(Campaign)
+        .where(Campaign.id == campaign_id)
+        .options(
+            selectinload(Campaign.streams).selectinload(Stream.offers)
+        )
+    )
+
 
 @router.get("/offers")
 async def get_offers(search: str | None = Query(default=None)):
@@ -105,6 +120,144 @@ async def sync_keitaro_data(db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         raise
+
+@router.post(
+    "/local/campaigns/{campaign_id}/sync",
+    response_model=CampaignResponse,
+)
+async def sync_local_campaign(
+        campaign_id: int,
+        db: Session = Depends(get_db),
+):
+    campaign = db.get(Campaign, campaign_id)
+
+    if campaign is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Campaign not found",
+        )
+
+    if campaign.keitaro_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Campaign is not synchronized with Keitaro",
+        )
+
+    try:
+        await sync_campaign(db, campaign)
+    except httpx.HTTPStatusError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API",
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_campaign_with_streams(db, campaign_id)
+
+
+@router.post(
+    "/local/streams/{stream_id}/offers/{offer_id}/restore",
+    response_model=CampaignResponse,
+)
+def restore_stream_offer(
+        stream_id: int,
+        offer_id: int,
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream not found",
+        )
+
+    offer = db.scalar(
+        select(StreamOffer).where(
+            StreamOffer.stream_id == stream_id,
+            StreamOffer.offer_id == offer_id,
+        )
+    )
+
+    if offer is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Offer not found in stream",
+        )
+
+    if offer.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Offer is already active",
+        )
+
+    offer.is_active = True
+
+    rebalance_offers(stream.offers)
+
+    stream.is_dirty = True
+
+    db.commit()
+
+    return _get_campaign_with_streams(db, stream.campaign_id)
+
+
+@router.post(
+    "/local/streams/{stream_id}/offers/{offer_id}/delete",
+    response_model=CampaignResponse,
+)
+def delete_stream_offer(
+        stream_id: int,
+        offer_id: int,
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream not found",
+        )
+
+    offer = db.scalar(
+        select(StreamOffer).where(
+            StreamOffer.stream_id == stream_id,
+            StreamOffer.offer_id == offer_id,
+        )
+    )
+
+    if offer is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Offer not found in stream",
+        )
+
+    if not offer.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Offer is already deleted",
+        )
+
+    offer.is_active = False
+    offer.share = 0
+
+    rebalance_offers(stream.offers)
+
+    stream.is_dirty = True
+
+    db.commit()
+
+    return _get_campaign_with_streams(db, stream.campaign_id)
+
 
 @router.post("/campaigns", response_model=CampaignCreateResponse)
 async def create_campaign(

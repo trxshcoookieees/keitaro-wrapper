@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CampaignSidebar } from "@/components/campaigns/CampaignSidebar";
 import { CampaignContent } from "@/components/campaigns/CampaignContent";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
-import { getCampaigns } from "@/lib/campaigns";
+import { getCampaigns, syncCampaign, syncCampaigns } from "@/lib/campaigns";
 import type { Campaign } from "@/types/campaign";
 
 export default function Home() {
@@ -13,8 +13,11 @@ export default function Home() {
     null,
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [updateError, setUpdateError] = useState("");
 
   useEffect(() => {
     async function loadCampaigns() {
@@ -41,9 +44,60 @@ export default function Home() {
   const selectedCampaign =
     campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
 
+  function replaceCampaign(updated: Campaign) {
+    setCampaigns((current) =>
+      current.map((campaign) =>
+        campaign.id === updated.id ? updated : campaign,
+      ),
+    );
+  }
+
   function handleCampaignCreated(campaign: Campaign) {
     setCampaigns((current) => [campaign, ...current]);
     setSelectedCampaignId(campaign.id);
+  }
+
+  async function handleUpdateActiveCampaign() {
+    if (selectedCampaignId === null) {
+      return;
+    }
+
+    try {
+      setUpdating(true);
+      setUpdateError("");
+
+      const updated = await syncCampaign(selectedCampaignId);
+
+      replaceCampaign(updated);
+    } catch (error) {
+      setUpdateError(
+        error instanceof Error ? error.message : "Failed to update campaign",
+      );
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleFetch() {
+    try {
+      setFetching(true);
+      setError("");
+
+      await syncCampaigns();
+
+      const data = await getCampaigns();
+      setCampaigns(data);
+
+      if (!data.some((campaign) => campaign.id === selectedCampaignId)) {
+        setSelectedCampaignId(data[0]?.id ?? null);
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to fetch campaigns",
+      );
+    } finally {
+      setFetching(false);
+    }
   }
 
   if (loading) {
@@ -67,11 +121,22 @@ export default function Home() {
       <CampaignSidebar
         campaigns={campaigns}
         selectedCampaignId={selectedCampaignId}
-        onSelect={setSelectedCampaignId}
+        onSelect={(campaignId) => {
+          setSelectedCampaignId(campaignId);
+          setUpdateError("");
+        }}
         onAdd={() => setIsModalOpen(true)}
+        onFetch={handleFetch}
+        fetching={fetching}
       />
 
-      <CampaignContent campaign={selectedCampaign} />
+      <CampaignContent
+        campaign={selectedCampaign}
+        onUpdate={handleUpdateActiveCampaign}
+        updating={updating}
+        updateError={updateError}
+        onCampaignUpdated={replaceCampaign}
+      />
 
       {isModalOpen && (
         <CreateCampaignModal
