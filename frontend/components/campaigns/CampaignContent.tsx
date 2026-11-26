@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { deleteStreamOffer, restoreStreamOffer } from "@/lib/campaigns";
+import {
+  cancelStream,
+  deleteStreamOffer,
+  pushStream,
+  restoreStreamOffer,
+} from "@/lib/campaigns";
 import type { Campaign } from "@/types/campaign";
 
 interface CampaignContentProps {
@@ -21,6 +26,35 @@ export function CampaignContent({
 }: CampaignContentProps) {
   const [offerActionKey, setOfferActionKey] = useState<string | null>(null);
   const [offerActionError, setOfferActionError] = useState("");
+  const [streamSyncKey, setStreamSyncKey] = useState<string | null>(null);
+  const [streamSyncError, setStreamSyncError] = useState("");
+
+  async function handleStreamSync(
+    streamId: number,
+    action: "push" | "cancel",
+  ) {
+    const key = `${action}:${streamId}`;
+
+    try {
+      setStreamSyncKey(key);
+      setStreamSyncError("");
+
+      const updated =
+        action === "push"
+          ? await pushStream(streamId)
+          : await cancelStream(streamId);
+
+      onCampaignUpdated(updated);
+    } catch (error) {
+      setStreamSyncError(
+        error instanceof Error
+          ? error.message
+          : `Failed to ${action} stream changes`,
+      );
+    } finally {
+      setStreamSyncKey(null);
+    }
+  }
 
   async function handleOfferAction(
     streamId: number,
@@ -95,6 +129,10 @@ export function CampaignContent({
         <p className="mb-4 text-sm text-red-600">{offerActionError}</p>
       )}
 
+      {streamSyncError && (
+        <p className="mb-4 text-sm text-red-600">{streamSyncError}</p>
+      )}
+
       <div className="space-y-6">
         {campaign.streams?.map((stream) => (
           <section
@@ -116,9 +154,45 @@ export function CampaignContent({
 
                 <div className="flex items-center gap-2">
                   {stream.is_dirty && (
-                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                      Unsaved changes
-                    </span>
+                    <>
+                      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                        Unsaved changes
+                      </span>
+
+                      <button
+                        onClick={() => handleStreamSync(stream.id, "push")}
+                        disabled={
+                          streamSyncKey !== null || stream.keitaro_id === null
+                        }
+                        title={
+                          stream.keitaro_id === null
+                            ? "Stream is not synchronized with Keitaro"
+                            : "Send local changes to Keitaro"
+                        }
+                        className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {streamSyncKey === `push:${stream.id}`
+                          ? "Pushing..."
+                          : "Push"}
+                      </button>
+
+                      <button
+                        onClick={() => handleStreamSync(stream.id, "cancel")}
+                        disabled={
+                          streamSyncKey !== null || stream.keitaro_id === null
+                        }
+                        title={
+                          stream.keitaro_id === null
+                            ? "Stream is not synchronized with Keitaro"
+                            : "Discard local changes and reload from Keitaro"
+                        }
+                        className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {streamSyncKey === `cancel:${stream.id}`
+                          ? "Cancelling..."
+                          : "Cancel"}
+                      </button>
+                    </>
                   )}
 
                   <span
@@ -154,17 +228,36 @@ export function CampaignContent({
 
                 <tbody className="divide-y divide-gray-100">
                 {stream.offers.map((offer) => (
-                  <tr key={offer.id}>
-                    <td className="px-5 py-3 text-gray-500">
+                  <tr
+                    key={offer.id}
+                    className={offer.is_active ? "" : "bg-gray-50/70"}
+                  >
+                    <td
+                      className={`px-5 py-3 text-gray-500 ${
+                        offer.is_active ? "" : "opacity-50"
+                      }`}
+                    >
                       {offer.offer_id}
                     </td>
-                    <td className="px-5 py-3 font-medium text-gray-900">
+                    <td
+                      className={`px-5 py-3 font-medium text-gray-900 ${
+                        offer.is_active ? "" : "opacity-50"
+                      }`}
+                    >
                       {offer.offer_name}
                     </td>
-                    <td className="px-5 py-3 text-gray-700">
+                    <td
+                      className={`px-5 py-3 text-gray-700 ${
+                        offer.is_active ? "" : "opacity-50"
+                      }`}
+                    >
                       {offer.share}%
                     </td>
-                    <td className="px-5 py-3">
+                    <td
+                      className={`px-5 py-3 ${
+                        offer.is_active ? "" : "opacity-50"
+                      }`}
+                    >
                         <span
                           className={
                             offer.is_active

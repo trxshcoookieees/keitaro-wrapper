@@ -76,6 +76,7 @@ async def _sync_streams(
     campaign: Campaign,
     client: KeitaroClient,
     offers_by_id: dict[int, str],
+    force: bool = False,
 ) -> int:
     streams_data = await client.get(
         f"/campaigns/{campaign.keitaro_id}/streams"
@@ -95,7 +96,7 @@ async def _sync_streams(
             )
         )
 
-        if stream is not None and stream.is_dirty:
+        if stream is not None and stream.is_dirty and not force:
             continue
 
         if stream is None:
@@ -108,6 +109,7 @@ async def _sync_streams(
             db.flush()
 
         _apply_stream_fields(stream, stream_data)
+        stream.is_dirty = False
         _sync_stream_offers(
             db,
             stream,
@@ -125,18 +127,26 @@ async def _sync_streams(
     ).all()
 
     for stream in local_streams:
-        if stream.keitaro_id not in remote_stream_ids and not stream.is_dirty:
+        if (
+            stream.keitaro_id not in remote_stream_ids
+            and (force or not stream.is_dirty)
+        ):
             stream.keitaro_id = None
             stream.is_active = False
+            stream.is_dirty = False
 
     return imported_streams
 
 
-async def sync_campaign(db: Session, campaign: Campaign) -> None:
+async def sync_campaign(
+    db: Session,
+    campaign: Campaign,
+    force: bool = False,
+) -> None:
     if campaign.keitaro_id is None:
         return
 
-    if campaign.is_dirty:
+    if campaign.is_dirty and not force:
         return
 
     client = KeitaroClient()
@@ -149,9 +159,11 @@ async def sync_campaign(db: Session, campaign: Campaign) -> None:
         if error.response.status_code == 404:
             campaign.keitaro_id = None
             campaign.is_active = False
+            campaign.is_dirty = False
 
             for stream in campaign.streams:
                 stream.keitaro_id = None
+                stream.is_dirty = False
 
             db.commit()
             return
@@ -159,10 +171,79 @@ async def sync_campaign(db: Session, campaign: Campaign) -> None:
         raise
 
     _apply_campaign_fields(campaign, campaign_data)
+    campaign.is_dirty = False
 
     offers_by_id = await _load_offers_by_id(client)
-    await _sync_streams(db, campaign, client, offers_by_id)
+    await _sync_streams(db, campaign, client, offers_by_id, force=force)
 
+    db.commit()
+
+
+def _serialize_stream(stream: Stream) -> dict:
+    return {
+        "name": stream.name,
+        "type": stream.type,
+        "schema": stream.schema,
+        "action_type": stream.action_type,
+        "action_payload": stream.action_payload,
+        "filter_or": stream.filter_or,
+        "filters": stream.filters or [],
+        "offers": [
+            {
+                "offer_id": offer.offer_id,
+                "share": offer.share,
+                "state": "active",
+            }
+            for offer in stream.offers
+            if offer.is_active
+        ],
+    }
+
+
+async def push_stream(db: Session, stream: Stream) -> None:
+    if stream.keitaro_id is None:
+        raise ValueError("Stream is not synchronized with Keitaro")
+
+    client = KeitaroClient()
+
+    await client.put(
+        f"/streams/{stream.keitaro_id}",
+        _serialize_stream(stream),
+    )
+
+    stream_data = await client.get(f"/streams/{stream.keitaro_id}")
+    offers_by_id = await _load_offers_by_id(client)
+
+    _apply_stream_fields(stream, stream_data)
+    _sync_stream_offers(
+        db,
+        stream,
+        stream_data.get("offers", []),
+        offers_by_id,
+    )
+
+    stream.is_dirty = False
+    db.commit()
+
+
+async def cancel_stream(db: Session, stream: Stream) -> None:
+    if stream.keitaro_id is None:
+        raise ValueError("Stream is not synchronized with Keitaro")
+
+    client = KeitaroClient()
+
+    stream_data = await client.get(f"/streams/{stream.keitaro_id}")
+    offers_by_id = await _load_offers_by_id(client)
+
+    _apply_stream_fields(stream, stream_data)
+    _sync_stream_offers(
+        db,
+        stream,
+        stream_data.get("offers", []),
+        offers_by_id,
+    )
+
+    stream.is_dirty = False
     db.commit()
 
 

@@ -41,6 +41,18 @@ export async function deleteStreamOffer(
   );
 }
 
+export async function pushStream(streamId: number): Promise<Campaign> {
+  return apiFetch<Campaign>(`/local/streams/${streamId}/push`, {
+    method: "POST",
+  });
+}
+
+export async function cancelStream(streamId: number): Promise<Campaign> {
+  return apiFetch<Campaign>(`/local/streams/${streamId}/cancel`, {
+    method: "POST",
+  });
+}
+
 export async function createCampaign(
   data: CampaignCreate,
 ): Promise<{ campaign: Campaign }> {

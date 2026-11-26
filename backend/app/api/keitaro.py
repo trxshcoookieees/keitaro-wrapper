@@ -7,7 +7,12 @@ import httpx
 from app.database import get_db
 from app.schemas.campaign import CampaignCreate, CampaignCreateResponse, CampaignResponse
 from app.models import Campaign, Stream, StreamOffer
-from app.services.keitaro_sync import sync_campaign, sync_campaigns
+from app.services.keitaro_sync import (
+    cancel_stream,
+    push_stream,
+    sync_campaign,
+    sync_campaigns,
+)
 from app.services.keitaro import KeitaroClient
 from app.services.stream_offers import rebalance_offers
 
@@ -144,7 +149,7 @@ async def sync_local_campaign(
         )
 
     try:
-        await sync_campaign(db, campaign)
+        await sync_campaign(db, campaign, force=True)
     except httpx.HTTPStatusError as error:
         db.rollback()
         raise HTTPException(
@@ -162,6 +167,92 @@ async def sync_local_campaign(
         raise
 
     return _get_campaign_with_streams(db, campaign_id)
+
+
+@router.post(
+    "/local/streams/{stream_id}/push",
+    response_model=CampaignResponse,
+)
+async def push_local_stream(
+        stream_id: int,
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream not found",
+        )
+
+    try:
+        await push_stream(db, stream)
+    except ValueError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Stream is not synchronized with Keitaro",
+        )
+    except httpx.HTTPStatusError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API",
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_campaign_with_streams(db, stream.campaign_id)
+
+
+@router.post(
+    "/local/streams/{stream_id}/cancel",
+    response_model=CampaignResponse,
+)
+async def cancel_local_stream(
+        stream_id: int,
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream not found",
+        )
+
+    try:
+        await cancel_stream(db, stream)
+    except ValueError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Stream is not synchronized with Keitaro",
+        )
+    except httpx.HTTPStatusError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API",
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_campaign_with_streams(db, stream.campaign_id)
 
 
 @router.post(
