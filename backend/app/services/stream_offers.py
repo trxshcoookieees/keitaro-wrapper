@@ -7,6 +7,10 @@ def rebalance_offers(offers: list[StreamOffer]) -> None:
         key=lambda offer: offer.id or 0,
     )
 
+    if len(active_offers) == 1:
+        active_offers[0].share = 100
+        return
+
     pinned_offers = [
         offer for offer in active_offers
         if offer.is_pinned
