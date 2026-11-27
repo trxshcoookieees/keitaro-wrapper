@@ -47,6 +47,16 @@ export async function deleteStreamOffer(
   );
 }
 
+export async function addStreamOffers(
+  streamId: number,
+  offerIds: number[],
+): Promise<Campaign> {
+  return apiFetch<Campaign>(`/local/streams/${streamId}/offers`, {
+    method: "POST",
+    body: JSON.stringify({ offer_ids: offerIds }),
+  });
+}
+
 export async function pushStream(streamId: number): Promise<Campaign> {
   return apiFetch<Campaign>(`/local/streams/${streamId}/push`, {
     method: "POST",

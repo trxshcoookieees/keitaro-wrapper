@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AddStreamOffers } from "@/components/campaigns/AddStreamOffers";
 import {
   cancelStream,
   deleteStreamOffer,
@@ -360,6 +361,19 @@ export function CampaignContent({
               <div className="px-5 py-6 text-sm text-gray-400">
                 No offers in this stream
               </div>
+            )}
+
+            {stream.schema === "landings" && (
+              <AddStreamOffers
+                streamId={stream.id}
+                existingOfferIds={stream.offers.map(
+                  (offer) => offer.offer_id,
+                )}
+                onCampaignUpdated={onCampaignUpdated}
+                disabled={
+                  offerActionKey !== null || streamSyncKey !== null
+                }
+              />
             )}
           </section>
         ))}

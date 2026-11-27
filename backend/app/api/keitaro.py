@@ -6,6 +6,7 @@ import httpx
 
 from app.database import get_db
 from app.schemas.campaign import CampaignCreate, CampaignCreateResponse, CampaignResponse
+from app.schemas.stream import StreamOffersAdd
 from app.models import Campaign, Stream, StreamOffer
 from app.services.keitaro_sync import (
     cancel_stream,
@@ -428,6 +429,89 @@ def delete_stream_offer(
     stream.is_dirty = True
 
     db.commit()
+
+    return _get_campaign_with_streams(db, stream.campaign_id)
+
+
+@router.post(
+    "/local/streams/{stream_id}/offers",
+    response_model=CampaignResponse,
+)
+async def add_local_stream_offers(
+        stream_id: int,
+        data: StreamOffersAdd,
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Stream not found",
+        )
+
+    if stream.schema != "landings":
+        raise HTTPException(
+            status_code=409,
+            detail="Offers can only be added to an offers stream",
+        )
+
+    offer_ids = list(dict.fromkeys(data.offer_ids))
+
+    catalog = await _keitaro_get("/offers")
+    offers_by_id = {
+        offer["id"]: offer["name"]
+        for offer in catalog
+    }
+
+    missing_offer_ids = [
+        offer_id
+        for offer_id in offer_ids
+        if offer_id not in offers_by_id
+    ]
+
+    if missing_offer_ids:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Offers are missing in Keitaro: "
+                + ", ".join(str(offer_id) for offer_id in missing_offer_ids)
+            ),
+        )
+
+    existing_offers = {
+        offer.offer_id: offer
+        for offer in stream.offers
+    }
+    changed = False
+
+    for offer_id in offer_ids:
+        offer = existing_offers.get(offer_id)
+
+        if offer is not None:
+            if offer.is_active:
+                continue
+
+            offer.is_active = True
+            offer.share = 0
+            changed = True
+            continue
+
+        offer = StreamOffer(
+            stream=stream,
+            offer_id=offer_id,
+            offer_name=offers_by_id[offer_id],
+            share=0,
+            is_active=True,
+        )
+        db.add(offer)
+        existing_offers[offer_id] = offer
+        changed = True
+
+    if changed:
+        rebalance_offers(stream.offers)
+        stream.is_dirty = True
+        db.commit()
 
     return _get_campaign_with_streams(db, stream.campaign_id)
 

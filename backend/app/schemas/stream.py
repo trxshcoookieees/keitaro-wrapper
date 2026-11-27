@@ -1,4 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class StreamOffersAdd(BaseModel):
+    offer_ids: list[int] = Field(min_length=1)
 
 
 class StreamOfferResponse(BaseModel):

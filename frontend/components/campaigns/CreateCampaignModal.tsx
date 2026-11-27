@@ -1,12 +1,12 @@
 "use client";
 
 import {useEffect, useState} from "react";
+import {OfferSearch} from "@/components/campaigns/OfferSearch";
 import {
   createCampaign,
   getCampaignGroups,
   getDomains,
   getTrafficSources,
-  searchOffers,
 } from "@/lib/campaigns";
 import type {Campaign, CatalogOption, Offer} from "@/types/campaign";
 
@@ -28,10 +28,7 @@ export function CreateCampaignModal({
   const [groupId, setGroupId] = useState<number | null>(null);
   const [trafficSourceId, setTrafficSourceId] = useState<number | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
-  const [search, setSearch] = useState("");
-  const [offers, setOffers] = useState<Offer[]>([]);
   const [selectedOffers, setSelectedOffers] = useState<Offer[]>([]);
-  const [loadingOffers, setLoadingOffers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -82,27 +79,6 @@ export function CreateCampaignModal({
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!search.trim()) {
-      setOffers([]);
-      return;
-    }
-
-    const timeout = setTimeout(async () => {
-      try {
-        setLoadingOffers(true);
-        const result = await searchOffers(search.trim());
-        setOffers(result);
-      } catch {
-        setError("Failed to load offers");
-      } finally {
-        setLoadingOffers(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeout);
-  }, [search]);
 
   function toggleOffer(offer: Offer) {
     setSelectedOffers((current) => {
@@ -317,44 +293,11 @@ export function CreateCampaignModal({
               Search offers
             </label>
 
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by offer name or ID"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-500"
+            <OfferSearch
+              selectedOfferIds={selectedOffers.map((offer) => offer.id)}
+              onSelect={toggleOffer}
+              disabled={submitting}
             />
-
-            <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200">
-              {loadingOffers && (
-                <p className="p-3 text-sm text-gray-400">Searching...</p>
-              )}
-
-              {!loadingOffers &&
-                offers
-                  .filter(
-                    (offer) =>
-                      !selectedOffers.some(
-                        (selected) => selected.id === offer.id,
-                      ),
-                  )
-                  .map((offer) => (
-                    <button
-                      key={offer.id}
-                      type="button"
-                      onClick={() => toggleOffer(offer)}
-                      className="flex w-full items-center justify-between border-b border-gray-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
-                    >
-                      <span>{offer.name}</span>
-                      <span className="text-gray-400">#{offer.id}</span>
-                    </button>
-                  ))}
-
-              {!loadingOffers && search && offers.length === 0 && (
-                <p className="p-3 text-sm text-gray-400">
-                  No offers found
-                </p>
-              )}
-            </div>
           </div>
 
           {selectedOffers.length > 0 && (
