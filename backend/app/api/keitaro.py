@@ -422,6 +422,7 @@ def delete_stream_offer(
         )
 
     offer.is_active = False
+    offer.is_pinned = False
     offer.share = 0
 
     rebalance_offers(stream.offers)
