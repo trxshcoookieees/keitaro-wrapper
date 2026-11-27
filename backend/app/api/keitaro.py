@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 import httpx
+import logging
 
 from app.database import get_db
 from app.schemas.campaign import CampaignCreate, CampaignCreateResponse, CampaignResponse
@@ -17,6 +18,8 @@ from app.services.keitaro_sync import (
 )
 from app.services.keitaro import KeitaroClient
 from app.services.stream_offers import rebalance_offers
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/keitaro",
@@ -88,8 +91,8 @@ async def get_offers(search: str | None = Query(default=None)):
             offers = [
                 offer
                 for offer in offers
-                    if search_lower in offer["name"].lower()
-                    or search_lower in str(offer["id"])
+                if search_lower in offer["name"].lower()
+                   or search_lower in str(offer["id"])
             ]
 
         return offers
@@ -104,6 +107,7 @@ async def get_offers(search: str | None = Query(default=None)):
             status_code=502,
             detail="Unable to connect to Keitaro API"
         )
+
 
 @router.get("/campaigns")
 async def get_campaigns(
@@ -127,6 +131,7 @@ async def get_campaigns(
             status_code=502,
             detail="Unable to connect to Keitaro API"
         )
+
 
 @router.get("/campaigns/{campaign_id}/streams")
 async def get_campaign_streams(campaign_id: int):
@@ -165,6 +170,7 @@ async def sync_keitaro_data(db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         raise
+
 
 @router.post(
     "/local/campaigns/{campaign_id}/sync",
@@ -475,8 +481,8 @@ async def add_local_stream_offers(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Offers are missing in Keitaro: "
-                + ", ".join(str(offer_id) for offer_id in missing_offer_ids)
+                    "Offers are missing in Keitaro: "
+                    + ", ".join(str(offer_id) for offer_id in missing_offer_ids)
             ),
         )
 
@@ -524,6 +530,8 @@ async def create_campaign(
 ):
     client = KeitaroClient()
 
+    keitaro_campaign_id = None
+
     try:
         keitaro_campaign = await client.post(
             "/campaigns",
@@ -535,6 +543,8 @@ async def create_campaign(
             },
         )
 
+        keitaro_campaign_id = keitaro_campaign["id"]
+
         campaign = Campaign(
             keitaro_id=keitaro_campaign["id"],
             name=keitaro_campaign["name"],
@@ -544,8 +554,7 @@ async def create_campaign(
         )
 
         db.add(campaign)
-        db.commit()
-        db.refresh(campaign)
+        db.flush()
 
         geo_stream = await client.post(
             "/streams",
@@ -579,7 +588,6 @@ async def create_campaign(
         )
 
         db.add(geo_stream_record)
-        db.commit()
 
         offer_count = len(data.offer_ids)
         base_share, remainder = divmod(100, offer_count)
@@ -644,18 +652,37 @@ async def create_campaign(
 
         return {"campaign": campaign}
 
-    except httpx.HTTPStatusError as error:
+    except Exception as error:
         db.rollback()
-        raise HTTPException(
-            status_code=502,
-            detail=f"Keitaro API returned status {error.response.status_code}",
-        )
-    except httpx.RequestError:
-        db.rollback()
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to connect to Keitaro API"
-        )
+
+        if keitaro_campaign_id is not None:
+            try:
+                await client.delete(
+                    f"/campaigns/{keitaro_campaign_id}"
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to compensate Keitaro campaign creation."
+                    "Campaign ID: %s",
+                    keitaro_campaign_id,
+                )
+
+        if isinstance(error, httpx.HTTPStatusError):
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Keitaro API returned status "
+                    f"{error.response.status_code}"
+                ),
+            ) from error
+
+        if isinstance(error, httpx.RequestError):
+            raise HTTPException(
+                status_code=502,
+                detail="Unable to connect to Keitaro API",
+            ) from error
+
+        raise
 
 
 @router.get("/local/campaigns", response_model=list[CampaignResponse])
@@ -688,7 +715,7 @@ def set_stream_offer_pin(
         select(StreamOffer).where(
             StreamOffer.stream_id == stream_id,
             StreamOffer.offer_id == offer_id,
-            )
+        )
     )
 
     if offer is None:

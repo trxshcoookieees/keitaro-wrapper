@@ -51,4 +51,7 @@ class KeitaroClient:
             response = await client.delete(endpoint)
             response.raise_for_status()
 
+            if not response.content:
+                return None
+
             return response.json()
