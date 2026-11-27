@@ -648,7 +648,6 @@ async def create_campaign(
             )
 
         db.commit()
-        db.refresh(campaign)
 
         return {"campaign": campaign}
 
