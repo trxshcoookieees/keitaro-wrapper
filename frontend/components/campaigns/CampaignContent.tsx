@@ -7,9 +7,10 @@ import {
   deleteStreamOffer,
   pushStream,
   restoreCampaign,
-  restoreStreamOffer,
+  restoreStreamOffer, setOfferPin,
 } from "@/lib/campaigns";
 import type { Campaign } from "@/types/campaign";
+import {Pin} from "lucide-react";
 
 interface CampaignContentProps {
   campaign: Campaign | null;
@@ -113,6 +114,35 @@ export function CampaignContent({
         error instanceof Error
           ? error.message
           : `Failed to ${action} offer`,
+      );
+    } finally {
+      setOfferActionKey(null);
+    }
+  }
+
+  async function handleOfferPin(
+    streamId: number,
+    offerId: number,
+    isPinned: boolean,
+  ) {
+    const key = `pin:${streamId}:${offerId}`;
+
+    try {
+      setOfferActionKey(key);
+      setOfferActionError("");
+
+      const updated = await setOfferPin(
+        streamId,
+        offerId,
+        isPinned,
+      );
+
+      onCampaignUpdated(updated);
+    } catch (error) {
+      setOfferActionError(
+        error instanceof Error
+          ? error.message
+          : "Failed to change offer pin",
       );
     } finally {
       setOfferActionKey(null);
@@ -299,7 +329,31 @@ export function CampaignContent({
                         offer.is_active ? "" : "opacity-50"
                       }`}
                     >
-                      {offer.share}%
+                      <div className="flex items-center gap-2">
+                        <span>{offer.share}%</span>
+
+                        {offer.is_active && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOfferPin(stream.id, offer.offer_id, !offer.is_pinned)
+                            }
+                            disabled={offerActionKey !== null || streamSyncKey !== null}
+                            title={offer.is_pinned ? "Unpin offer" : "Pin offer"}
+                            aria-label={offer.is_pinned ? "Unpin offer" : "Pin offer"}
+                            className={`rounded p-1 transition hover:bg-gray-100 disabled:opacity-50 ${
+                              offer.is_pinned
+                                ? "text-amber-600"
+                                : "text-gray-400 hover:text-gray-700"
+                            }`}
+                          >
+                            <Pin
+                              size={14}
+                              className={offer.is_pinned ? "fill-current" : ""}
+                            />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td
                       className={`px-5 py-3 ${

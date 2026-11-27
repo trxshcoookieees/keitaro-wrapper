@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Query, HTTPException, Depends, Body
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -666,3 +666,50 @@ def get_local_campaigns(db: Session = Depends(get_db)):
     ).all()
 
     return campaigns
+
+
+@router.patch(
+    "/local/streams/{stream_id}/offers/{offer_id}/pin",
+    response_model=CampaignResponse,
+)
+def set_stream_offer_pin(
+        stream_id: int,
+        offer_id: int,
+        data: dict = Body(...),
+        db: Session = Depends(get_db),
+):
+    stream = db.get(Stream, stream_id)
+
+    if stream is None:
+        raise HTTPException(404, "Stream not found")
+
+    offer = db.scalar(
+        select(StreamOffer).where(
+            StreamOffer.stream_id == stream_id,
+            StreamOffer.offer_id == offer_id,
+            )
+    )
+
+    if offer is None:
+        raise HTTPException(404, "Offer not found")
+
+    if not offer.is_active:
+        raise HTTPException(409, "Cannot pin inactive offer")
+
+    is_pinned = data.get("is_pinned")
+
+    if not isinstance(is_pinned, bool):
+        raise HTTPException(422, "is_pinned must be a boolean")
+
+    offer.is_pinned = is_pinned
+
+    try:
+        rebalance_offers(stream.offers)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(409, detail=str(error))
+
+    stream.is_dirty = True
+    db.commit()
+
+    return _get_campaign_with_streams(db, stream.campaign_id)

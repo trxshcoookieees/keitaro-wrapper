@@ -93,3 +93,17 @@ export async function getCampaignGroups(): Promise<CatalogOption[]> {
 export async function getTrafficSources(): Promise<CatalogOption[]> {
   return apiFetch<CatalogOption[]>("/traffic-sources");
 }
+
+export async function setOfferPin(
+  streamId: number,
+  offerId: number,
+  isPinned: boolean,
+): Promise<Campaign> {
+  return apiFetch<Campaign>(
+    `/local/streams/${streamId}/offers/${offerId}/pin`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_pinned: isPinned }),
+    },
+  );
+}
