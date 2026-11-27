@@ -19,6 +19,26 @@ def _apply_campaign_fields(campaign: Campaign, data: dict) -> None:
     campaign.name = data["name"]
     campaign.is_active = data.get("state") == "active"
 
+    if "domain_id" in data:
+        campaign.domain_id = data["domain_id"]
+
+    if "group_id" in data:
+        campaign.group_id = data["group_id"]
+
+    if "traffic_source_id" in data:
+        campaign.traffic_source_id = data["traffic_source_id"]
+
+
+def _mark_campaign_deleted(campaign: Campaign) -> None:
+    campaign.keitaro_id = None
+    campaign.is_active = False
+    campaign.is_dirty = False
+
+    for stream in campaign.streams:
+        stream.keitaro_id = None
+        stream.is_active = False
+        stream.is_dirty = False
+
 
 def _apply_stream_fields(stream: Stream, data: dict) -> None:
     stream.name = data["name"]
@@ -157,13 +177,7 @@ async def sync_campaign(
         )
     except httpx.HTTPStatusError as error:
         if error.response.status_code == 404:
-            campaign.keitaro_id = None
-            campaign.is_active = False
-            campaign.is_dirty = False
-
-            for stream in campaign.streams:
-                stream.keitaro_id = None
-                stream.is_dirty = False
+            _mark_campaign_deleted(campaign)
 
             db.commit()
             return
@@ -247,6 +261,160 @@ async def cancel_stream(db: Session, stream: Stream) -> None:
     db.commit()
 
 
+def _serialize_stream_for_create(
+    stream: Stream,
+    campaign_keitaro_id: int,
+) -> dict:
+    payload = {
+        "campaign_id": campaign_keitaro_id,
+        "name": stream.name,
+        "type": stream.type,
+        "schema": stream.schema,
+        "action_type": stream.action_type,
+        "filter_or": stream.filter_or,
+        "filters": stream.filters or [],
+    }
+
+    if stream.action_payload:
+        payload["action_payload"] = stream.action_payload
+
+    if stream.schema == "landings":
+        payload["offers"] = [
+            {
+                "offer_id": offer.offer_id,
+                "share": offer.share,
+                "state": "active",
+            }
+            for offer in stream.offers
+            if offer.is_active
+        ]
+
+    return payload
+
+
+async def restore_campaign(db: Session, campaign: Campaign) -> None:
+    if campaign.keitaro_id is not None:
+        raise ValueError("Campaign is already synchronized with Keitaro")
+
+    if (
+        campaign.domain_id is None
+        or campaign.group_id is None
+        or campaign.traffic_source_id is None
+    ):
+        raise ValueError(
+            "Campaign has no saved domain, group or traffic source"
+        )
+
+    client = KeitaroClient()
+
+    offers_catalog = await client.get("/offers")
+    offers_by_id = {
+        offer["id"]: offer["name"]
+        for offer in offers_catalog
+    }
+
+    missing_offer_ids = sorted({
+        offer.offer_id
+        for stream in campaign.streams
+        for offer in stream.offers
+        if offer.is_active and offer.offer_id not in offers_by_id
+    })
+
+    if missing_offer_ids:
+        raise ValueError(
+            "Offers are missing in Keitaro: "
+            + ", ".join(str(offer_id) for offer_id in missing_offer_ids)
+        )
+
+    domains = await client.get("/domains")
+
+    if not any(
+        domain["id"] == campaign.domain_id
+        for domain in domains
+    ):
+        raise ValueError("Saved domain is missing in Keitaro")
+
+    groups = await client.get(
+        "/groups",
+        params={"type": "campaigns"},
+    )
+
+    if not any(
+        group["id"] == campaign.group_id
+        for group in groups
+    ):
+        raise ValueError("Saved group is missing in Keitaro")
+
+    sources = await client.get("/traffic_sources")
+
+    if not any(
+        source["id"] == campaign.traffic_source_id
+        for source in sources
+    ):
+        raise ValueError("Saved traffic source is missing in Keitaro")
+
+    for stream in campaign.streams:
+        if stream.schema == "landings" and not any(
+            offer.is_active for offer in stream.offers
+        ):
+            raise ValueError(
+                f"Stream '{stream.name}' has no active offers to restore"
+            )
+
+    created_campaign = await client.post(
+        "/campaigns",
+        data={
+            "name": campaign.name,
+            "domain_id": campaign.domain_id,
+            "group_id": str(campaign.group_id),
+            "traffic_source_id": campaign.traffic_source_id,
+        },
+    )
+
+    try:
+        campaign.keitaro_id = created_campaign["id"]
+
+        for stream in sorted(
+            campaign.streams,
+            key=lambda item: item.id,
+        ):
+            created_stream = await client.post(
+                "/streams",
+                data=_serialize_stream_for_create(
+                    stream,
+                    created_campaign["id"],
+                ),
+            )
+
+            stream.keitaro_id = created_stream["id"]
+            _apply_stream_fields(stream, created_stream)
+            stream.is_active = True
+            _sync_stream_offers(
+                db,
+                stream,
+                created_stream.get("offers", []),
+                offers_by_id,
+            )
+            stream.is_dirty = False
+
+        _apply_campaign_fields(campaign, created_campaign)
+        campaign.is_active = True
+        campaign.is_dirty = False
+
+        db.commit()
+    except Exception:
+        db.rollback()
+
+        try:
+            await client.delete(
+                f"/campaigns/{created_campaign['id']}"
+            )
+        except Exception:
+            pass
+
+        raise
+
+
 async def sync_campaigns(db: Session):
     client = KeitaroClient()
 
@@ -288,6 +456,9 @@ async def sync_campaigns(db: Session):
             campaign = Campaign(
                 keitaro_id=campaign_data["id"],
                 name=campaign_data["name"],
+                domain_id=campaign_data.get("domain_id"),
+                group_id=campaign_data.get("group_id"),
+                traffic_source_id=campaign_data.get("traffic_source_id"),
                 is_active=campaign_data.get("state") == "active",
             )
             db.add(campaign)
@@ -311,12 +482,15 @@ async def sync_campaigns(db: Session):
     ).all()
 
     for campaign in local_campaigns:
-        if campaign.keitaro_id not in remote_campaign_ids and not campaign.is_dirty:
-            campaign.keitaro_id = None
-            campaign.is_active = False
+        if campaign.keitaro_id not in remote_campaign_ids:
+            _mark_campaign_deleted(campaign)
 
-            for stream in campaign.streams:
-                stream.keitaro_id = None
+    unsynchronized_campaigns = db.scalars(
+        select(Campaign).where(Campaign.keitaro_id.is_(None))
+    ).all()
+
+    for campaign in unsynchronized_campaigns:
+        _mark_campaign_deleted(campaign)
 
     db.commit()
 

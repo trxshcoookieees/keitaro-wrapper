@@ -43,19 +43,39 @@ export function CampaignSidebar({
       <div className="flex-1 space-y-1 overflow-y-auto p-3">
         {campaigns.map((campaign) => {
           const isSelected = campaign.id === selectedCampaignId;
+          const isDeleted = campaign.keitaro_id === null;
+
+          const statusDotClass = isDeleted
+            ? "bg-gray-400"
+            : campaign.is_active
+              ? "bg-green-500"
+              : "bg-red-500";
 
           return (
             <button
               key={campaign.id}
               onClick={() => onSelect(campaign.id)}
+              title={
+                isDeleted
+                  ? "Campaign was deleted in Keitaro"
+                  : !campaign.is_active
+                    ? "Campaign is disabled in Keitaro"
+                    : undefined
+              }
               className={`w-full rounded-lg px-3 py-3 text-left transition ${
                 isSelected
                   ? "bg-gray-100 text-gray-950"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-950"
-              }`}
+              } ${isDeleted ? "opacity-50" : ""}`}
             >
-              <span className="block truncate text-sm font-medium">
-                {campaign.name}
+              <span className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass}`}
+                />
+
+                <span className="truncate text-sm font-medium">
+                  {campaign.name}
+                </span>
               </span>
 
               <span className="mt-1 block text-xs text-gray-400">

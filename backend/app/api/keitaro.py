@@ -10,6 +10,7 @@ from app.models import Campaign, Stream, StreamOffer
 from app.services.keitaro_sync import (
     cancel_stream,
     push_stream,
+    restore_campaign,
     sync_campaign,
     sync_campaigns,
 )
@@ -188,6 +189,49 @@ async def sync_local_campaign(
 
     try:
         await sync_campaign(db, campaign, force=True)
+    except httpx.HTTPStatusError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API",
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    return _get_campaign_with_streams(db, campaign_id)
+
+
+@router.post(
+    "/local/campaigns/{campaign_id}/restore",
+    response_model=CampaignResponse,
+)
+async def restore_local_campaign(
+        campaign_id: int,
+        db: Session = Depends(get_db),
+):
+    campaign = _get_campaign_with_streams(db, campaign_id)
+
+    if campaign is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Campaign not found",
+        )
+
+    try:
+        await restore_campaign(db, campaign)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        )
     except httpx.HTTPStatusError as error:
         db.rollback()
         raise HTTPException(
@@ -409,6 +453,9 @@ async def create_campaign(
         campaign = Campaign(
             keitaro_id=keitaro_campaign["id"],
             name=keitaro_campaign["name"],
+            domain_id=data.domain_id,
+            group_id=data.group_id,
+            traffic_source_id=data.traffic_source_id,
         )
 
         db.add(campaign)

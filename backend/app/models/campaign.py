@@ -12,6 +12,9 @@ class Campaign(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     keitaro_id: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=True)
     name: Mapped[str] = mapped_column(String(255))
+    domain_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    traffic_source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_dirty: Mapped[bool] = mapped_column(Boolean, default=False)
 

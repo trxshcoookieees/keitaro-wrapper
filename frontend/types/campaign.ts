@@ -11,6 +11,9 @@ export interface Campaign {
   id: number;
   keitaro_id: number | null;
   name: string;
+  domain_id: number | null;
+  group_id: number | null;
+  traffic_source_id: number | null;
   is_active: boolean;
   is_dirty: boolean;
   streams: Stream[];

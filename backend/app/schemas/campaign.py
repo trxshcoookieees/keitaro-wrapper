@@ -17,6 +17,9 @@ class CampaignResponse(BaseModel):
     id: int
     keitaro_id: int | None
     name: str
+    domain_id: int | None
+    group_id: int | None
+    traffic_source_id: int | None
     is_active: bool
     is_dirty: bool
     streams: list[StreamResponse]

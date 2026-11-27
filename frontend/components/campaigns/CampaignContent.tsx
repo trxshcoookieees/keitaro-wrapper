@@ -5,6 +5,7 @@ import {
   cancelStream,
   deleteStreamOffer,
   pushStream,
+  restoreCampaign,
   restoreStreamOffer,
 } from "@/lib/campaigns";
 import type { Campaign } from "@/types/campaign";
@@ -28,6 +29,39 @@ export function CampaignContent({
   const [offerActionError, setOfferActionError] = useState("");
   const [streamSyncKey, setStreamSyncKey] = useState<string | null>(null);
   const [streamSyncError, setStreamSyncError] = useState("");
+  const [restoringCampaign, setRestoringCampaign] = useState(false);
+  const [campaignRestoreError, setCampaignRestoreError] = useState("");
+
+  async function handleRestoreCampaign() {
+    if (!campaign || campaign.keitaro_id !== null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Restore this campaign in Keitaro? A new campaign and its streams will be created.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRestoringCampaign(true);
+      setCampaignRestoreError("");
+
+      const updated = await restoreCampaign(campaign.id);
+
+      onCampaignUpdated(updated);
+    } catch (error) {
+      setCampaignRestoreError(
+        error instanceof Error
+          ? error.message
+          : "Failed to restore campaign",
+      );
+    } finally {
+      setRestoringCampaign(false);
+    }
+  }
 
   async function handleStreamSync(
     streamId: number,
@@ -103,26 +137,39 @@ export function CampaignContent({
           </h1>
 
           <p className="mt-1 text-sm text-gray-500">
-            Campaign ID: {campaign.keitaro_id ?? "Not synchronized"}
+            {campaign.keitaro_id === null
+              ? "Campaign was deleted in Keitaro"
+              : `Campaign ID: ${campaign.keitaro_id}`}
           </p>
         </div>
 
-        <button
-          onClick={onUpdate}
-          disabled={updating || campaign.keitaro_id === null}
-          title={
-            campaign.keitaro_id === null
-              ? "Campaign is not synchronized with Keitaro"
-              : "Refresh this campaign from Keitaro"
-          }
-          className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {updating ? "Updating..." : "Update"}
-        </button>
+        {campaign.keitaro_id === null ? (
+          <button
+            onClick={handleRestoreCampaign}
+            disabled={restoringCampaign}
+            title="Recreate this campaign and its streams in Keitaro"
+            className="shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {restoringCampaign ? "Restoring..." : "Restore campaign"}
+          </button>
+        ) : (
+          <button
+            onClick={onUpdate}
+            disabled={updating}
+            title="Refresh this campaign from Keitaro"
+            className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {updating ? "Updating..." : "Update"}
+          </button>
+        )}
       </div>
 
       {updateError && (
         <p className="mb-4 text-sm text-red-600">{updateError}</p>
+      )}
+
+      {campaignRestoreError && (
+        <p className="mb-4 text-sm text-red-600">{campaignRestoreError}</p>
       )}
 
       {offerActionError && (

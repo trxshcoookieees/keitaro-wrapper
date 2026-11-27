@@ -17,6 +17,12 @@ export async function syncCampaign(campaignId: number): Promise<Campaign> {
   });
 }
 
+export async function restoreCampaign(campaignId: number): Promise<Campaign> {
+  return apiFetch<Campaign>(`/local/campaigns/${campaignId}/restore`, {
+    method: "POST",
+  });
+}
+
 export async function restoreStreamOffer(
   streamId: number,
   offerId: number,

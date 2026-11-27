@@ -41,3 +41,14 @@ class KeitaroClient:
             response.raise_for_status()
 
             return response.json()
+
+    async def delete(self, endpoint: str):
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=30.0,
+        ) as client:
+            response = await client.delete(endpoint)
+            response.raise_for_status()
+
+            return response.json()
