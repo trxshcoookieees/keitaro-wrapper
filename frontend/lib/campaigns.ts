@@ -1,5 +1,5 @@
 import {apiFetch} from "@/lib/api";
-import type {Campaign, CampaignCreate, Offer} from "@/types/campaign";
+import type {Campaign, CampaignCreate, CatalogOption, Offer} from "@/types/campaign";
 
 export async function getCampaigns(): Promise<Campaign[]> {
   return apiFetch<Campaign[]>("/local/campaigns");
@@ -64,4 +64,16 @@ export async function createCampaign(
 
 export async function searchOffers(search: string): Promise<Offer[]> {
   return apiFetch<Offer[]>(`/offers?search=${encodeURIComponent(search)}`)
+}
+
+export async function getDomains(): Promise<CatalogOption[]> {
+  return apiFetch<CatalogOption[]>("/domains");
+}
+
+export async function getCampaignGroups(): Promise<CatalogOption[]> {
+  return apiFetch<CatalogOption[]>("/groups?type=campaigns");
+}
+
+export async function getTrafficSources(): Promise<CatalogOption[]> {
+  return apiFetch<CatalogOption[]>("/traffic-sources");
 }

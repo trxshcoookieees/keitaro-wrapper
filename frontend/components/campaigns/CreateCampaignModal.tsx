@@ -1,8 +1,14 @@
 "use client";
 
 import {useEffect, useState} from "react";
-import {createCampaign, searchOffers} from "@/lib/campaigns";
-import type {Campaign, Offer} from "@/types/campaign";
+import {
+  createCampaign,
+  getCampaignGroups,
+  getDomains,
+  getTrafficSources,
+  searchOffers,
+} from "@/lib/campaigns";
+import type {Campaign, CatalogOption, Offer} from "@/types/campaign";
 
 interface CreateCampaignModalProps {
   onClose: () => void;
@@ -15,12 +21,67 @@ export function CreateCampaignModal({
                                     }: CreateCampaignModalProps) {
   const [name, setName] = useState("");
   const [geoInput, setGeoInput] = useState("");
+  const [domains, setDomains] = useState<CatalogOption[]>([]);
+  const [groups, setGroups] = useState<CatalogOption[]>([]);
+  const [trafficSources, setTrafficSources] = useState<CatalogOption[]>([]);
+  const [domainId, setDomainId] = useState<number | null>(null);
+  const [groupId, setGroupId] = useState<number | null>(null);
+  const [trafficSourceId, setTrafficSourceId] = useState<number | null>(null);
+  const [loadingOptions, setLoadingOptions] = useState(true);
   const [search, setSearch] = useState("");
   const [offers, setOffers] = useState<Offer[]>([]);
   const [selectedOffers, setSelectedOffers] = useState<Offer[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOptions() {
+      try {
+        setLoadingOptions(true);
+
+        const [domainList, groupList, sourceList] = await Promise.all([
+          getDomains(),
+          getCampaignGroups(),
+          getTrafficSources(),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setDomains(domainList);
+        setGroups(groupList);
+        setTrafficSources(sourceList);
+
+        setDomainId(domainList[0]?.id ?? null);
+        setGroupId(groupList[0]?.id ?? null);
+        setTrafficSourceId(sourceList[0]?.id ?? null);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load domains, groups and traffic sources",
+        );
+      } finally {
+        if (active) {
+          setLoadingOptions(false);
+        }
+      }
+    }
+
+    loadOptions();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!search.trim()) {
@@ -79,6 +140,15 @@ export function CreateCampaignModal({
       return;
     }
 
+    if (
+      domainId === null ||
+      groupId === null ||
+      trafficSourceId === null
+    ) {
+      setError("Select domain, group and traffic source");
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -86,6 +156,9 @@ export function CreateCampaignModal({
         name: name.trim(),
         geo_codes: geoCodes,
         offer_ids: selectedOffers.map((offer) => offer.id),
+        domain_id: domainId,
+        group_id: groupId,
+        traffic_source_id: trafficSourceId,
       });
 
       onCreated(result.campaign);
@@ -148,6 +221,95 @@ export function CreateCampaignModal({
             <p className="mt-1 text-xs text-gray-400">
               Separate country codes with commas
             </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Domain
+              </label>
+
+              <select
+                value={domainId ?? ""}
+                onChange={(event) =>
+                  setDomainId(
+                    event.target.value ? Number(event.target.value) : null,
+                  )
+                }
+                disabled={loadingOptions}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-500 disabled:bg-gray-50"
+              >
+                {loadingOptions && <option value="">Loading...</option>}
+
+                {!loadingOptions && domains.length === 0 && (
+                  <option value="">No domains</option>
+                )}
+
+                {domains.map((domain) => (
+                  <option key={domain.id} value={domain.id}>
+                    {domain.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Group
+              </label>
+
+              <select
+                value={groupId ?? ""}
+                onChange={(event) =>
+                  setGroupId(
+                    event.target.value ? Number(event.target.value) : null,
+                  )
+                }
+                disabled={loadingOptions}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-500 disabled:bg-gray-50"
+              >
+                {loadingOptions && <option value="">Loading...</option>}
+
+                {!loadingOptions && groups.length === 0 && (
+                  <option value="">No groups</option>
+                )}
+
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Traffic source
+              </label>
+
+              <select
+                value={trafficSourceId ?? ""}
+                onChange={(event) =>
+                  setTrafficSourceId(
+                    event.target.value ? Number(event.target.value) : null,
+                  )
+                }
+                disabled={loadingOptions}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-500 disabled:bg-gray-50"
+              >
+                {loadingOptions && <option value="">Loading...</option>}
+
+                {!loadingOptions && trafficSources.length === 0 && (
+                  <option value="">No sources</option>
+                )}
+
+                {trafficSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>

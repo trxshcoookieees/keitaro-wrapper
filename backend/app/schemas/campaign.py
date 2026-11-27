@@ -6,6 +6,9 @@ class CampaignCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     geo_codes: list[str] = Field(min_length=1)
     offer_ids: list[int] = Field(min_length=1)
+    domain_id: int
+    group_id: int
+    traffic_source_id: int
 
 
 class CampaignResponse(BaseModel):

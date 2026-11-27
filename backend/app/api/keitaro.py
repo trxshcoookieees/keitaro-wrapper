@@ -35,6 +35,44 @@ def _get_campaign_with_streams(
     )
 
 
+async def _keitaro_get(
+        endpoint: str,
+        params: dict | None = None,
+):
+    client = KeitaroClient()
+
+    try:
+        return await client.get(endpoint, params=params)
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Keitaro API returned status {error.response.status_code}",
+        )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to connect to Keitaro API",
+        )
+
+
+@router.get("/domains")
+async def get_domains():
+    return await _keitaro_get("/domains")
+
+
+@router.get("/groups")
+async def get_groups(type: str = Query(default="campaigns")):
+    return await _keitaro_get(
+        "/groups",
+        params={"type": type},
+    )
+
+
+@router.get("/traffic-sources")
+async def get_traffic_sources():
+    return await _keitaro_get("/traffic_sources")
+
+
 @router.get("/offers")
 async def get_offers(search: str | None = Query(default=None)):
     client = KeitaroClient()
@@ -360,7 +398,12 @@ async def create_campaign(
     try:
         keitaro_campaign = await client.post(
             "/campaigns",
-            data={"name": data.name},
+            data={
+                "name": data.name,
+                "domain_id": data.domain_id,
+                "group_id": str(data.group_id),
+                "traffic_source_id": data.traffic_source_id,
+            },
         )
 
         campaign = Campaign(

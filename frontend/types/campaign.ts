@@ -34,6 +34,14 @@ export interface CampaignCreate {
   name: string;
   geo_codes: string[];
   offer_ids: number[];
+  domain_id: number;
+  group_id: number;
+  traffic_source_id: number;
+}
+
+export interface CatalogOption {
+  id: number;
+  name: string;
 }
 
 export interface Offer {
